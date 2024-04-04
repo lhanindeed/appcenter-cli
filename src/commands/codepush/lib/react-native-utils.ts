@@ -24,8 +24,15 @@ export interface VersionSearchParams {
   projectFile: string;
 }
 
+export interface Options {
+  readonly gradlePath: string;
+  readonly buildGradleFileName: string;
+  readonly versionName?: string;
+}
+
 export async function getReactNativeProjectAppVersion(
   versionSearchParams: VersionSearchParams,
+  options: Options,
   projectRoot?: string
 ): Promise<string> {
   projectRoot = projectRoot || process.cwd();
@@ -41,7 +48,7 @@ export async function getReactNativeProjectAppVersion(
     }
   };
 
-  out.text(chalk.cyan(`Detecting ${versionSearchParams.os} app version:\n`));
+  out.text(chalk.cyan(`Detecting ${versionSearchParams.os} app version ${JSON.stringify(options)}:\n`));
 
   if (versionSearchParams.os === "ios") {
     let resolvedPlistFile: string = versionSearchParams.plistFile;
@@ -144,12 +151,12 @@ export async function getReactNativeProjectAppVersion(
       throw new Error(`The "CFBundleShortVersionString" key doesn't exist within the "${resolvedPlistFile}" file.`);
     }
   } else if (versionSearchParams.os === "android") {
-    let buildGradlePath: string = path.join("android", "app");
+    let buildGradlePath: string = options.gradlePath;
     if (versionSearchParams.gradleFile) {
       buildGradlePath = versionSearchParams.gradleFile;
     }
     if (fs.lstatSync(buildGradlePath).isDirectory()) {
-      buildGradlePath = path.join(buildGradlePath, "build.gradle");
+      buildGradlePath = path.join(buildGradlePath, options.buildGradleFileName);
     }
 
     if (fileDoesNotExistOrIsDirectory(buildGradlePath)) {
@@ -162,32 +169,34 @@ export async function getReactNativeProjectAppVersion(
         throw new Error(`Unable to parse the "${buildGradlePath}" file. Please ensure it is a well-formed Gradle file.`);
       })
       .then((buildGradle: any) => {
-        let versionName: string = null;
+        let versionName: string = options.versionName ?? null;
 
-        // First 'if' statement was implemented as workaround for case
-        // when 'build.gradle' file contains several 'android' nodes.
-        // In this case 'buildGradle.android' prop represents array instead of object
-        // due to parsing issue in 'g2js.parseFile' method.
-        if (buildGradle.android instanceof Array) {
-          for (let i = 0; i < buildGradle.android.length; i++) {
-            const gradlePart = buildGradle.android[i];
-            if (gradlePart.defaultConfig && gradlePart.defaultConfig.versionName) {
-              versionName = gradlePart.defaultConfig.versionName;
-              break;
+        if (!isValidVersion(versionName)) {
+          // First 'if' statement was implemented as workaround for case
+          // when 'build.gradle' file contains several 'android' nodes.
+          // In this case 'buildGradle.android' prop represents array instead of object
+          // due to parsing issue in 'g2js.parseFile' method.
+          if (buildGradle.android instanceof Array) {
+            for (let i = 0; i < buildGradle.android.length; i++) {
+              const gradlePart = buildGradle.android[i];
+              if (gradlePart.defaultConfig && gradlePart.defaultConfig.versionName) {
+                versionName = gradlePart.defaultConfig.versionName;
+                break;
+              }
             }
+          } else if (buildGradle.android && buildGradle.android.defaultConfig && buildGradle.android.defaultConfig.versionName) {
+            versionName = buildGradle.android.defaultConfig.versionName;
+          } else {
+            throw new Error(
+              `The "${buildGradlePath}" file doesn't specify a value for the "android.defaultConfig.versionName" property.`
+            );
           }
-        } else if (buildGradle.android && buildGradle.android.defaultConfig && buildGradle.android.defaultConfig.versionName) {
-          versionName = buildGradle.android.defaultConfig.versionName;
-        } else {
-          throw new Error(
-            `The "${buildGradlePath}" file doesn't specify a value for the "android.defaultConfig.versionName" property.`
-          );
-        }
 
-        if (typeof versionName !== "string") {
-          throw new Error(
-            `The "android.defaultConfig.versionName" property value in "${buildGradlePath}" is not a valid string. If this is expected, consider using the --target-binary-version option to specify the value manually.`
-          );
+          if (typeof versionName !== "string") {
+            throw new Error(
+              `The "android.defaultConfig.versionName" property value in "${buildGradlePath}" is not a valid string. If this is expected, consider using the --target-binary-version option to specify the value manually.`
+            );
+          }
         }
 
         let appVersion: string = versionName.replace(/"/g, "").trim();
@@ -204,7 +213,7 @@ export async function getReactNativeProjectAppVersion(
         const propertyName = appVersion.replace("project.", "");
         const propertiesFileName = "gradle.properties";
 
-        const knownLocations = [path.join("android", "app", propertiesFileName), path.join("android", propertiesFileName)];
+        const knownLocations = [path.join(options.gradlePath, propertiesFileName), path.join("android", propertiesFileName)];
 
         // Search for gradle properties across all `gradle.properties` files
         let propertiesFile: string = null;
@@ -343,7 +352,8 @@ export async function runHermesEmitBinaryCommand(
   outputFolder: string,
   sourcemapOutput: string,
   extraHermesFlags: string[],
-  gradleFile: string
+  gradleFile: string,
+  options: Options
 ): Promise<void> {
   const hermesArgs: string[] = [];
   const envNodeArgs: string = process.env.CODE_PUSH_NODE_ARGS;
@@ -369,7 +379,7 @@ export async function runHermesEmitBinaryCommand(
   }
 
   out.text(chalk.cyan("Converting JS bundle to byte code via Hermes, running command:\n"));
-  const hermesCommand = await getHermesCommand(gradleFile);
+  const hermesCommand = await getHermesCommand(gradleFile, options);
   const hermesProcess = childProcess.spawn(hermesCommand, hermesArgs);
   out.text(`${hermesCommand} ${hermesArgs.join(" ")}`);
 
@@ -455,13 +465,13 @@ export async function runHermesEmitBinaryCommand(
   });
 }
 
-function parseBuildGradleFile(gradleFile: string) {
-  let buildGradlePath: string = path.join("android", "app");
+function parseBuildGradleFile(gradleFile: string, options: Options) {
+  let buildGradlePath: string = options.gradlePath;
   if (gradleFile) {
     buildGradlePath = gradleFile;
   }
   if (fs.lstatSync(buildGradlePath).isDirectory()) {
-    buildGradlePath = path.join(buildGradlePath, "build.gradle");
+    buildGradlePath = path.join(buildGradlePath, options.buildGradleFileName);
   }
 
   if (fileDoesNotExistOrIsDirectory(buildGradlePath)) {
@@ -473,8 +483,8 @@ function parseBuildGradleFile(gradleFile: string) {
   });
 }
 
-async function getHermesCommandFromGradle(gradleFile: string): Promise<string> {
-  const buildGradle: any = await parseBuildGradleFile(gradleFile);
+async function getHermesCommandFromGradle(gradleFile: string, options: Options): Promise<string> {
+  const buildGradle: any = await parseBuildGradleFile(gradleFile, options);
   const hermesCommandProperty: any = Array.from(buildGradle["project.ext.react"] || []).find((prop: string) =>
     prop.trim().startsWith("hermesCommand:")
   );
@@ -485,8 +495,8 @@ async function getHermesCommandFromGradle(gradleFile: string): Promise<string> {
   }
 }
 
-export function getAndroidHermesEnabled(gradleFile: string): boolean {
-  return parseBuildGradleFile(gradleFile).then((buildGradle: any) => {
+export function getAndroidHermesEnabled(gradleFile: string, options: Options): boolean {
+  return parseBuildGradleFile(gradleFile, options).then((buildGradle: any) => {
     return Array.from(buildGradle["project.ext.react"] || []).some((line: string) => /^enableHermes\s{0,}:\s{0,}true/.test(line));
   });
 }
@@ -533,7 +543,7 @@ function getHermesOSExe(): string {
   }
 }
 
-async function getHermesCommand(gradleFile: string): Promise<string> {
+async function getHermesCommand(gradleFile: string, options: Options): Promise<string> {
   const fileExists = (file: string): boolean => {
     try {
       return fs.statSync(file).isFile();
@@ -547,9 +557,9 @@ async function getHermesCommand(gradleFile: string): Promise<string> {
     return bundledHermesEngine;
   }
 
-  const gradleHermesCommand = await getHermesCommandFromGradle(gradleFile);
+  const gradleHermesCommand = await getHermesCommandFromGradle(gradleFile, options);
   if (gradleHermesCommand) {
-    return path.join("android", "app", gradleHermesCommand.replace("%OS-BIN%", getHermesOSBin()));
+    return path.join(options.gradlePath, gradleHermesCommand.replace("%OS-BIN%", getHermesOSBin()));
   } else {
     // assume if hermes-engine exists it should be used instead of hermesvm
     const hermesEngine = path.join("node_modules", "hermes-engine", getHermesOSBin(), getHermesOSExe());

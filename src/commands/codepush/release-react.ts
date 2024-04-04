@@ -127,6 +127,25 @@ export default class CodePushReleaseReactCommand extends CodePushReleaseCommandB
   @longName("use-hermes")
   public useHermes: boolean;
 
+  @help("path to the directory containing the build.gradle file")
+  @longName("gradle-path")
+  @shortName("gp")
+  @defaultValue("android/app")
+  @hasArg
+  public gradlePath: string;
+
+  @help("name of the build.gradle file")
+  @longName("build-gradle-name")
+  @shortName("bgn")
+  @hasArg
+  public buildGradleName: string;
+
+  @help("version name")
+  @longName("version-name")
+  @shortName("vn")
+  @hasArg
+  public versionName: string;
+
   private os: string;
 
   private platform: string;
@@ -202,7 +221,11 @@ export default class CodePushReleaseReactCommand extends CodePushReleaseCommandB
         xcodeTargetName: this.xcodeTargetName,
         projectFile: this.xcodeProjectFile,
       } as VersionSearchParams;
-      this.targetBinaryVersion = await getReactNativeProjectAppVersion(versionSearchParams);
+      this.targetBinaryVersion = await getReactNativeProjectAppVersion(versionSearchParams, {
+        gradlePath: this.gradlePath,
+        buildGradleFileName: this.buildGradleName,
+        versionName: this.versionName,
+      });
     }
 
     if (typeof this.extraBundlerOptions === "string") {
@@ -228,7 +251,12 @@ export default class CodePushReleaseReactCommand extends CodePushReleaseCommandB
 
       const isHermesEnabled =
         this.useHermes ||
-        (this.os === "android" && (await getAndroidHermesEnabled(this.gradleFile))) || // Check if we have to run hermes to compile JS to Byte Code if Hermes is enabled in build.gradle and we're releasing an Android build
+        (this.os === "android" &&
+          (await getAndroidHermesEnabled(this.gradleFile, {
+            gradlePath: this.gradlePath,
+            buildGradleFileName: this.buildGradleName,
+            versionName: this.versionName,
+          }))) || // Check if we have to run hermes to compile JS to Byte Code if Hermes is enabled in build.gradle and we're releasing an Android build
         (this.os === "ios" && (await getiOSHermesEnabled(this.podFile))); // Check if we have to run hermes to compile JS to Byte Code if Hermes is enabled in Podfile and we're releasing an iOS build
 
       if (isHermesEnabled) {
@@ -237,7 +265,12 @@ export default class CodePushReleaseReactCommand extends CodePushReleaseCommandB
           this.updateContentsPath,
           this.sourcemapOutput,
           this.extraHermesFlags,
-          this.gradleFile
+          this.gradleFile,
+          {
+            gradlePath: this.gradlePath,
+            buildGradleFileName: this.buildGradleName,
+            versionName: this.versionName,
+          }
         );
       }
 

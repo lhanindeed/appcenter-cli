@@ -146,6 +146,12 @@ export default class CodePushReleaseReactCommand extends CodePushReleaseCommandB
   @hasArg
   public versionName: string;
 
+  @help("marketing version")
+  @longName("marketing-version")
+  @shortName("mv")
+  @hasArg
+  public marketingVersion: string;
+
   private os: string;
 
   private platform: string;
@@ -225,6 +231,7 @@ export default class CodePushReleaseReactCommand extends CodePushReleaseCommandB
         gradlePath: this.gradlePath,
         buildGradleFileName: this.buildGradleName,
         versionName: this.versionName,
+        marketingVersion: this.marketingVersion,
       });
     }
 

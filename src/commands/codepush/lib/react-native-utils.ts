@@ -28,6 +28,7 @@ export interface Options {
   readonly gradlePath: string;
   readonly buildGradleFileName: string;
   readonly versionName?: string;
+  readonly marketingVersion?: string;
 }
 
 export async function getReactNativeProjectAppVersion(
@@ -133,11 +134,13 @@ export async function getReactNativeProjectAppVersion(
         }
 
         const xcodeProj = xcode.project(resolvedPbxprojFile).parseSync();
-        const marketingVersion = xcodeProj.getBuildProperty(
-          "MARKETING_VERSION",
-          versionSearchParams.buildConfigurationName,
-          versionSearchParams.xcodeTargetName
-        );
+        const marketingVersion =
+          options.marketingVersion ??
+          xcodeProj.getBuildProperty(
+            "MARKETING_VERSION",
+            versionSearchParams.buildConfigurationName,
+            versionSearchParams.xcodeTargetName
+          );
         if (!isValidVersion(marketingVersion)) {
           throw new Error(
             `The "MARKETING_VERSION" key in the "${resolvedPbxprojFile}" file needs to specify a valid semver string, containing both a major and minor version (e.g. 1.3.2, 1.1).`
@@ -631,6 +634,7 @@ export function getReactNativeVersion(): string {
 
   return (
     (projectPackageJson.dependencies && projectPackageJson.dependencies["react-native"]) ||
-    (projectPackageJson.devDependencies && projectPackageJson.devDependencies["react-native"])
+    (projectPackageJson.devDependencies && projectPackageJson.devDependencies["react-native"]) ||
+    (projectPackageJson.peerDependencies && projectPackageJson.peerDependencies["react-native"])
   );
 }
